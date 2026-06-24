@@ -1,8 +1,8 @@
 # ClaudeDock
 
-**Claude Code running persistently in Docker — homelab, Unraid, VPS, Linux.**
+**Have Claude Code always running — one container per project, Remote Control ready, zero friction.**
 
-Persistent login. Persistent workspace. Persistent configuration.
+> You open Claude on your phone, tablet, or any device. Your projects are already there, running on your server, 24/7. You just connect and ask Claude to do the work.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://www.docker.com/)
@@ -10,235 +10,265 @@ Persistent login. Persistent workspace. Persistent configuration.
 
 ---
 
-## What It Is
+## Is This What You Need?
 
-ClaudeDock is a Docker infrastructure for running **Claude Code** (`@anthropic-ai/claude-code`) persistently on 24/7 servers — homelab, Unraid, NAS, Proxmox, VPS, or any always-on Linux machine.
+**ClaudeDock is for you if:**
+- You want to use [Claude Remote Control](https://docs.anthropic.com/en/docs/claude-code/remote-development) from any device — without having to prepare anything in advance
+- You have a server (homelab, Unraid, NAS, VPS, Raspberry Pi) that stays on 24/7
+- You want multiple projects always available — each with its own Claude session
+- You're tired of Remote Control freezing and not being able to unblock it remotely
 
-You log in **once**. After that, Claude Code is always running with your credentials, your projects, and your configuration — ready to reconnect at any time.
-
-**This project does not modify Claude Code.** It only provides the Docker infrastructure to host it persistently.
-
-**Remote Control is optional.** By default, ClaudeDock runs in interactive mode via `tmux attach-session`. To use Remote Control mode, set `AUTO_START_MODE=remote`.
-
----
-
-## Problem Solved
-
-| Situation | Before | With ClaudeDock |
-|-----------|--------|-----------------|
-| Leaving home | Laptop must stay on | Server keeps running |
-| Closing terminal | Session ends | Claude keeps running on server |
-| Server reboot | Lose configuration | Container restarts already authenticated |
-| Switching devices | Start from scratch | Reconnect to existing session |
-| Power outage | Lose everything | Restarts automatically |
+**ClaudeDock is not for you if:**
+- You don't have a 24/7 server
+- You only want to use Claude Code interactively on your main machine (just install `@anthropic-ai/claude-code` directly)
 
 ---
 
-## How It Works
+## The Problem It Solves
+
+Claude Remote Control is powerful — you can control Claude from the Claude.ai interface, from your phone, from any device. But it has two friction points:
+
+**Problem 1 — You have to prepare in advance.**
+To use Remote Control, your machine needs to have Claude running with `--remote-control` before you connect. If you close the terminal, leave home, or your machine sleeps — the session is gone. You can't connect to something that isn't running.
+
+**Problem 2 — Remote Control can freeze.**
+It happens: Claude asks for permission to run a command, you approve from the remote interface, but it stays stuck. The only fix is physical access to the terminal where Claude is running. If you're away from home, you're stuck.
+
+**What ClaudeDock does:**
+- Runs Claude inside Docker on your 24/7 server — it's always on, always ready
+- Each container = one project, with its own workspace and its own session name
+- Remote Control is enabled by default — just open Claude.ai and your sessions are there
+- If a session freezes, connect to your server via VPN and unblock it from the tmux terminal
+- One login for all containers — credentials shared via a single config folder
+
+---
+
+## The Multi-Project Pattern
+
+This is the core idea: **one ClaudeDock container per project**, all running on the same server, all sharing the same login.
 
 ```
 Your 24/7 server
-+-----------------------------------------------+
-|  Docker Container "claude-dock"               |
-|  User: node (UID 1000, non-root)              |
-|                                               |
-|   tmux (PID 1)                                |
-|     +-- session "main" --> claude             |
-|                                               |
-|   /workspace         --> your projects (host) |  <- persistent volume
-|   /home/node/.claude --> login + config (host)|  <- persistent volume
-+-----------------------------------------------+
-              ^
-   docker exec -it claude-dock tmux attach-session -t main
-              ^
-        Any terminal
-        (SSH, local, Unraid console, etc.)
++------------------------------------------------------------------+
+|                                                                  |
+|  Container: claudedock-homepage                                  |
+|  REMOTE_SESSION_NAME=HomePage                                    |
+|  WORKSPACE_PATH=/srv/homepage                                    |
+|  CONFIG_PATH=/srv/claude-config  <-- shared login               |
+|                                                                  |
+|  Container: claudedock-calendar                                  |
+|  REMOTE_SESSION_NAME=Calendar                                    |
+|  WORKSPACE_PATH=/home/user/calendar-assistant                    |
+|  CONFIG_PATH=/srv/claude-config  <-- same folder                |
+|                                                                  |
+|  Container: claudedock-investments                               |
+|  REMOTE_SESSION_NAME=Investments                                 |
+|  WORKSPACE_PATH=/home/user/investment-portfolio                  |
+|  CONFIG_PATH=/srv/claude-config  <-- same folder                |
+|                                                                  |
++------------------------------------------------------------------+
+                          |
+          Open Claude.ai Remote Control
+                          |
+          +---------------+---------------+
+          |               |               |
+       HomePage        Calendar      Investments
+   (always there)   (always there)  (always there)
 ```
 
-Claude Code runs inside a tmux session named `main`. tmux is the container's PID 1. To connect, use `./scripts/attach.sh` or `docker exec -it claude-dock tmux attach-session -t main`. When you disconnect with `Ctrl+B D`, Claude keeps running. The next time you connect, the process is the same — nothing was restarted.
+From Claude.ai Remote Control, you see all three sessions by name. Click one, start working. Done.
 
 ---
 
-## Execution Modes
+## Real Use Cases
 
-| Mode | Variable | PID 1 | Primary use |
-|------|----------|-------|-------------|
-| **interactive** (default) | `AUTO_START_MODE=interactive` | `tmux -> claude` | Interactive terminal via `tmux attach-session` |
-| **remote** | `AUTO_START_MODE=remote` | `tmux -> claude --remote-control` | Remote Control server for IDEs |
-| **shell** | `AUTO_START_MODE=shell` | `bash` | Debug and manual inspection |
+### Homepage in production
 
----
+You have a website running on your server, configured with a domain. Create a ClaudeDock container pointing the workspace to your site's production folder:
 
-## Choosing the Right Mode
+```env
+REMOTE_SESSION_NAME=HomePage
+WORKSPACE_PATH=/srv/www/myhomepage.com
+AUTO_START_MODE=remote
+```
 
-**Use `interactive` (default) if:**
-- You want to use Claude Code directly in the terminal
-- You connect to the server via SSH + `./scripts/attach.sh`
-- This is your first setup — always start here
-
-**Use `remote` if:**
-- You have a Remote Control-compatible client configured
-- You want the Remote Control server to run as the main process
-- You specifically need `--remote-control`
-
-**Use `shell` if:**
-- You are debugging the container
-- You want to inspect the environment before starting Claude
-- You prefer to start Claude manually when needed
+Now from anywhere you can ask: *"Update the About page with my new contact info"* — Claude is running directly on the server, in the production folder, with your files.
 
 ---
 
-## Prerequisites
+### Calendar assistant
 
-- Docker Engine 20.10+
-- Docker Compose v2+
-- 24/7 Linux server (Unraid, NAS, VM, VPS, Raspberry Pi, etc.)
+A folder with your calendar data, scripts, and notes. Claude always running with full context:
+
+```env
+REMOTE_SESSION_NAME=Calendar
+WORKSPACE_PATH=/home/user/calendar-assistant
+AUTO_START_MODE=remote
+```
+
+Ask: *"What do I have this week that conflicts with my trip?"* or *"Create an event template for my weekly meetings"*.
 
 ---
 
-## Setup — Docker / Linux
+### Personal investment assistant
 
-### 1. Clone the project on your server
+A private folder containing your portfolio spreadsheets, notes on assets, investment history. Claude with full context on your financial situation:
+
+```env
+REMOTE_SESSION_NAME=Investments
+WORKSPACE_PATH=/home/user/investment-portfolio
+AUTO_START_MODE=remote
+```
+
+Ask: *"Based on my current portfolio, where does it make sense to invest this month?"* — Claude reads your files, knows your history, and helps you decide.
+
+---
+
+### The limit is your imagination
+
+One 24/7 server. Any number of ClaudeDock containers. Each with:
+- Its own project folder
+- Its own session name (visible in Remote Control)
+- Its own dedicated Claude instance
+
+A recipe assistant. A home automation helper. A private journal with AI analysis. A documentation project. A study environment. Each one is always on, always accessible, ready the moment you open Claude.ai.
+
+---
+
+## Setup: One-Time Global Configuration
+
+Before creating any container, set up two folders that all containers will share. **You only do this once.**
+
+### Step 1 — Clone ClaudeDock to your server
 
 ```bash
-git clone https://github.com/LeonardoMacedoCano/ClaudeDock.git ClaudeDock
-cd ClaudeDock
+# Choose a permanent location on your server
+git clone https://github.com/LeonardoMacedoCano/ClaudeDock.git /srv/claudedock
+```
+
+This folder will be referenced by all containers as `CLAUDE_SOURCE_PATH`. You never need to clone it again.
+
+### Step 2 — Create the shared config folder
+
+```bash
+mkdir -p /srv/claude-config
+```
+
+This is `CONFIG_PATH`. It stores your Claude login credentials. **All containers share this folder** — so you only log in once, with the very first container you create.
+
+---
+
+## Creating Your First Container
+
+### 1. Copy the compose file
+
+```bash
+mkdir -p /srv/projects/homepage
+cp /srv/claudedock/.env.example /srv/projects/homepage/.env
+cp /srv/claudedock/docker-compose.yml /srv/projects/homepage/docker-compose.yml
 ```
 
 ### 2. Configure `.env`
 
-```bash
-cp .env.example .env
-nano .env
-```
-
-Minimal configuration:
-
 ```env
-# Where your projects live
-WORKSPACE_PATH=/home/user/projects
+# The ClaudeDock source (points to where you cloned it)
+CLAUDE_SOURCE_PATH=/srv/claudedock
 
-# Timezone
-TZ=America/New_York
+# Shared login credentials — configure once, reuse everywhere
+CONFIG_PATH=/srv/claude-config
+
+# This project's folder
+WORKSPACE_PATH=/srv/www/myhomepage.com
+
+# Session name as it will appear in Claude Remote Control
+REMOTE_SESSION_NAME=HomePage
+
+# Enable Remote Control mode
+AUTO_START_MODE=remote
+
+# Container name — must be unique per container
+# Edit docker-compose.yml: container_name: claudedock-homepage
+
+TZ=America/Sao_Paulo
+GIT_USER_NAME=Your Name
+GIT_USER_EMAIL=you@email.com
 ```
 
-### 3. Build the image
+### 3. Build and start
 
 ```bash
+cd /srv/projects/homepage
 docker compose build
-```
-
-This downloads the Node.js base image and installs `@anthropic-ai/claude-code`. Takes 3–10 minutes the first time.
-
-### 4. Start the container
-
-```bash
 docker compose up -d
 ```
 
-The container starts in the background. Claude Code is already running inside it, waiting for a connection.
-
-### 5. First login
+### 4. First login (only once, for the first container)
 
 ```bash
-./scripts/attach.sh
-# or directly:
-docker exec -it claude-dock tmux attach-session -t main
+docker exec -it claudedock-homepage tmux attach-session -t main
 ```
 
-You will see the Claude Code interface. On the first run, it will ask for authentication — follow the instructions shown by Claude Code.
+Claude Code will display the authentication flow. Complete it. Credentials are saved to `/srv/claude-config/`.
 
-After completing login, credentials are saved automatically to `./config/` on the host.
+Disconnect with `Ctrl+B, D`. The container keeps running.
 
-### 6. Disconnect without stopping
+### 5. Open Claude.ai Remote Control
 
-```
-Ctrl+B  then  D
-```
-
-> **Important:** `Ctrl+C` sends SIGINT to Claude Code. Always use `Ctrl+B, D` to disconnect (tmux detach).
+Your `HomePage` session is there, connected to your server's production folder.
 
 ---
 
-## Setup — Unraid
+## Creating Additional Containers
+
+For the second, third, tenth container — **no login required.** Just copy, configure, and start:
 
 ```bash
-# SSH into your Unraid server
-ssh root@your-unraid-server
-
-# Navigate to appdata (Unraid convention)
-cd /mnt/user/appdata/
-
-# Clone
-git clone https://github.com/LeonardoMacedoCano/ClaudeDock.git ClaudeDock
-cd ClaudeDock
-
-# Configure
-cp .env.example .env
-nano .env
+mkdir -p /srv/projects/calendar
+cp /srv/claudedock/.env.example /srv/projects/calendar/.env
+cp /srv/claudedock/docker-compose.yml /srv/projects/calendar/docker-compose.yml
 ```
 
-Recommended configuration for Unraid:
+Edit `/srv/projects/calendar/.env`:
 
 ```env
-CLAUDE_SOURCE_PATH=/mnt/user/appdata/ClaudeDock
-WORKSPACE_PATH=/mnt/cache/projects
-CONFIG_PATH=/mnt/user/appdata/ClaudeDock/config
-TZ=America/New_York
+CLAUDE_SOURCE_PATH=/srv/claudedock
+CONFIG_PATH=/srv/claude-config        # <-- same folder, already authenticated
+WORKSPACE_PATH=/home/user/calendar-assistant
+REMOTE_SESSION_NAME=Calendar
+AUTO_START_MODE=remote
+TZ=America/Sao_Paulo
 ```
 
+Edit `docker-compose.yml` to set a unique container name:
+```yaml
+container_name: claudedock-calendar
+```
+
+Then:
 ```bash
-# Install
-chmod +x scripts/install.sh
-./scripts/install.sh
-
-# Connect
-./scripts/attach.sh
+cd /srv/projects/calendar
+docker compose build
+docker compose up -d
 ```
 
-If using Unraid, see the [Unraid Guide](docs/unraid.md) for the complete setup including Docker UI configuration.
+Done. `Calendar` appears in Claude Remote Control, already authenticated.
 
 ---
 
-## Setup — Homelab / VPS
+## If a Session Freezes
 
-```bash
-# On any Linux server
-git clone https://github.com/LeonardoMacedoCano/ClaudeDock.git
-cd ClaudeDock
-cp .env.example .env
-# Edit WORKSPACE_PATH to point to your projects folder
-./scripts/install.sh
-```
+It happens with Remote Control — a permission prompt gets stuck. The fix:
 
----
+1. Connect to your server via VPN (Tailscale, WireGuard, etc.)
+2. SSH into the server
+3. Attach to the frozen container's tmux session:
+   ```bash
+   docker exec -it claudedock-homepage tmux attach-session -t main
+   ```
+4. Respond to the prompt or unblock whatever is stuck
+5. Disconnect with `Ctrl+B, D`
 
-## Persistent Login
-
-Login is done **once** and persists across restarts:
-
-```
-First time:
-  1. ./scripts/attach.sh
-  2. Claude Code displays the authentication flow
-  3. You follow the instructions and log in
-  4. Credentials saved to ./config/ (on the host, outside the container)
-
-After a restart:
-  1. Container restarts automatically (restart: unless-stopped)
-  2. Claude Code reads credentials from ./config/ -> already authenticated
-  3. ./scripts/attach.sh -> ready to use
-```
-
-**Why it works:** The `~/.claude/` directory inside the container is a bind mount volume pointing to `./config/` on the host. Credentials live on the server's disk and persist across container restarts.
-
----
-
-## Persistent Workspace
-
-The `/workspace` directory inside the container points to `WORKSPACE_PATH` on the host.
-
-Your projects live on the server, accessible from inside the container. Even if the container is deleted and recreated, your files remain intact on the host.
+The session resumes normally in Remote Control. This is exactly why ClaudeDock runs Claude inside tmux — you can always reach the terminal, from anywhere, via VPN.
 
 ---
 
@@ -246,101 +276,95 @@ Your projects live on the server, accessible from inside the container. Even if 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WORKSPACE_PATH` | `./workspaces` | Path to projects on the host |
-| `CONFIG_PATH` | `./config` | Path to credentials on the host |
+| `CLAUDE_SOURCE_PATH` | `.` | Path to the ClaudeDock clone on the host |
+| `CONFIG_PATH` | `./config` | Path to credentials — share this across all containers |
+| `WORKSPACE_PATH` | `./workspaces` | This container's project folder |
 | `AUTO_START_MODE` | `interactive` | Mode: `interactive`, `remote`, `shell` |
 | `CLAUDE_AUTO_APPROVE` | `true` | Enables `--dangerously-skip-permissions` |
-| `REMOTE_SESSION_NAME` | `` | Session name for remote mode (leave empty for hostname) |
-| `CLAUDE_EXTRA_ARGS` | `` | Extra arguments for Claude |
+| `REMOTE_SESSION_NAME` | `` | Session name visible in Remote Control |
+| `CLAUDE_EXTRA_ARGS` | `` | Extra arguments passed to Claude |
 | `TZ` | `UTC` | Timezone |
 | `GIT_USER_NAME` | `` | Name for git commits |
 | `GIT_USER_EMAIL` | `` | Email for git commits |
 
-### CLAUDE_AUTO_APPROVE
+### Key variables explained
 
-```env
-CLAUDE_AUTO_APPROVE=true   # Claude executes without asking for confirmation (recommended for personal server)
-CLAUDE_AUTO_APPROVE=false  # Claude asks for approval before each action
-```
+**`CONFIG_PATH`** — Points to the folder where Claude stores credentials. Set it to the same path in every container and you only log in once.
 
-Enables the `--dangerously-skip-permissions` flag in Claude Code, which disables confirmation prompts before running commands, creating, or editing files.
+**`REMOTE_SESSION_NAME`** — The name that appears in Claude.ai Remote Control when you connect. Make it descriptive: `HomePage`, `Calendar`, `Investments`, `RecipeBot`, etc.
 
-### CLAUDE_EXTRA_ARGS
+**`AUTO_START_MODE=remote`** — Starts Claude with `--remote-control` as the main process. This is the recommended mode for always-on containers.
 
-Appends extra arguments to the final command:
-
-```env
-CLAUDE_EXTRA_ARGS=--model sonnet
-CLAUDE_EXTRA_ARGS=--verbose
-CLAUDE_EXTRA_ARGS=--debug
-```
+**`CLAUDE_AUTO_APPROVE=true`** — Enables `--dangerously-skip-permissions`, so Claude doesn't ask for confirmation before running commands. Recommended for personal servers.
 
 ---
 
-## Daily Use
+## Execution Modes
 
-```bash
-# Connect to Claude Code on the server
-./scripts/attach.sh
-# or directly:
-docker exec -it claude-dock tmux attach-session -t main
-
-# ... use Claude normally ...
-
-# Disconnect without stopping (tmux detach)
-Ctrl+B, D
-```
-
-### What happens in each situation
-
-**You close the terminal / SSH drops:**
-The container keeps running. On the next connection, Claude is exactly where you left it.
-
-**The server reboots:**
-With `restart: unless-stopped`, Docker restarts the container automatically. Claude Code starts already authenticated. Just reconnect.
-
-**Claude Code crashes or you type `/exit`:**
-The container stops and restarts automatically (restart policy). Just reconnect after a few seconds.
+| Mode | Variable | Use when |
+|------|----------|----------|
+| **remote** | `AUTO_START_MODE=remote` | Main use case — Claude Remote Control from any device |
+| **interactive** | `AUTO_START_MODE=interactive` | You want to use Claude directly in the terminal via SSH |
+| **shell** | `AUTO_START_MODE=shell` | Debugging the container |
 
 ---
 
 ## Available Scripts
 
+From inside any ClaudeDock project folder:
+
 ```bash
 ./scripts/install.sh      # Full initial setup
 ./scripts/update.sh       # Update Claude Code (rebuild + restart)
-./scripts/attach.sh       # Connect to Claude Code (tmux session)
+./scripts/attach.sh       # Connect to the tmux session (for debugging or unblocking)
 ./scripts/shell.sh        # Open bash in the container (separate process)
 ./scripts/logs.sh         # View container logs in real time
 ./scripts/backup.sh       # Backup credentials
 ./scripts/restore.sh      # Restore a backup
-./scripts/claude.sh       # Run Claude in the container via docker exec
-./scripts/remote.sh       # Run Claude Remote Control via docker exec
+./scripts/claude.sh       # Run Claude via docker exec
+./scripts/remote.sh       # Run Remote Control via docker exec (temporary session)
 ```
 
 ---
 
-## Updating Claude Code
+## How It Works Internally
 
-```bash
-./scripts/update.sh
+```
+Your 24/7 server
++-----------------------------------------------+
+|  Docker Container "claudedock-homepage"        |
+|  User: node (UID 1000, non-root)              |
+|                                               |
+|   tmux (PID 1)                                |
+|     +-- session "main" --> claude --remote-control
+|                                               |
+|   /workspace         --> WORKSPACE_PATH (host)|
+|   /home/node/.claude --> CONFIG_PATH (host)   |
++-----------------------------------------------+
+              ^
+   Remote Control from Claude.ai (any device)
+   or:
+   docker exec -it claudedock-homepage tmux attach-session -t main
+   (for debugging / unblocking)
 ```
 
-The script backs up credentials, rebuilds the image with `--no-cache` (installs the latest version of `@anthropic-ai/claude-code`), and restarts the container. **Login is preserved.**
+Claude runs inside a tmux session. tmux is PID 1 of the container. If you detach (`Ctrl+B, D`) or Remote Control disconnects, Claude keeps running — the tmux session stays alive, the container stays alive, your work continues.
 
 ---
 
-## Backup
+## Persistent Login
 
-```bash
-# Create backup
-./scripts/backup.sh
+```
+First container, first time:
+  1. docker exec -it claudedock-<name> tmux attach-session -t main
+  2. Claude Code shows authentication flow
+  3. You log in
+  4. Credentials saved to CONFIG_PATH on the host
 
-# List available backups
-./scripts/restore.sh --list
-
-# Restore a specific backup
-./scripts/restore.sh ./backups/claude-dock-backup-2024-01-15_14-30-00.tar.gz
+Every other container, every restart:
+  - Container mounts CONFIG_PATH -> /home/node/.claude/
+  - Claude reads credentials -> already authenticated
+  - No login needed
 ```
 
 ---
@@ -349,82 +373,102 @@ The script backs up credentials, rebuilds the image with `--no-cache` (installs 
 
 ```
 ClaudeDock/
-+-- Dockerfile              <- Image with Claude Code installed (node user, non-root)
-+-- docker-compose.yml      <- Container orchestration
++-- Dockerfile              <- Image with Claude Code (node user, non-root)
++-- docker-compose.yml      <- Container orchestration template
 +-- .env.example            <- Configuration template
 +-- docker/
-|   +-- entrypoint.sh       <- Container initialization and mode control
+|   +-- entrypoint.sh       <- Initialization and mode control
 +-- scripts/
-|   +-- install.sh          <- Initial setup
-|   +-- update.sh           <- Update
-|   +-- attach.sh           <- Connect to Claude Code (tmux attach)
-|   +-- backup.sh           <- Credential backup
-|   +-- restore.sh          <- Restore backup
-|   +-- shell.sh            <- Shell in container (separate process)
-|   +-- logs.sh             <- Real-time logs
-|   +-- claude.sh           <- Run Claude via docker exec
-|   +-- remote.sh           <- Run Remote Control via docker exec
+|   +-- install.sh
+|   +-- update.sh
+|   +-- attach.sh
+|   +-- backup.sh
+|   +-- restore.sh
+|   +-- shell.sh
+|   +-- logs.sh
+|   +-- claude.sh
+|   +-- remote.sh
 +-- docs/
-|   +-- architecture.md     <- Architecture and design decisions
-|   +-- docker.md           <- Docker commands reference
-|   +-- unraid.md           <- Complete Unraid guide
-|   +-- troubleshooting.md  <- Problem resolution
-|   +-- security.md         <- Security and best practices
-+-- config/                 <- Claude Code credentials (do not commit -- in .gitignore)
+|   +-- architecture.md
+|   +-- docker.md
+|   +-- unraid.md
+|   +-- troubleshooting.md
+|   +-- security.md
++-- config/                 <- Local credentials (not committed -- in .gitignore)
 +-- workspaces/             <- Default local workspace (fallback)
-```
-
----
-
-## Persistence
-
-| What | Inside container | On host | Persists? |
-|------|-----------------|---------|-----------|
-| Credentials / login | `/home/node/.claude/` | `CONFIG_PATH` (default: `./config`) | Yes |
-| Projects / code | `/workspace/` | `WORKSPACE_PATH` | Yes |
-
-Both are bind mount volumes — data lives on the host, not in the container. Deleting and recreating the container does not lose data.
-
----
-
-## WORKSPACE_PATH Examples by Platform
-
-```env
-# Standard Linux
-WORKSPACE_PATH=/home/user/projects
-
-# Unraid -- cache SSD (recommended, faster)
-WORKSPACE_PATH=/mnt/cache/projects
-
-# Unraid -- HDD array
-WORKSPACE_PATH=/mnt/user/projects
-
-# Synology NAS
-WORKSPACE_PATH=/volume1/projects
-
-# QNAP
-WORKSPACE_PATH=/share/projects
-
-# Proxmox Linux VM
-WORKSPACE_PATH=/opt/projects
-
-# Raspberry Pi
-WORKSPACE_PATH=/home/pi/projects
-
-# Local test (no external server)
-WORKSPACE_PATH=./workspaces
 ```
 
 ---
 
 ## Security
 
-- **No exposed ports** — interaction exclusively via terminal
+- **No exposed ports** — interaction via tmux terminal or Claude Remote Control (which uses Claude's own secure channel)
 - **Non-root user** — container runs as `node` (UID 1000)
-- **Isolated credentials** — `./config/` excluded from git via `.gitignore`
-- **External access** — use SSH + VPN (Tailscale, WireGuard) instead of exposing the server
+- **Isolated credentials** — `CONFIG_PATH` folder excluded from git via `.gitignore`
+- **VPN for server access** — use Tailscale or WireGuard instead of exposing SSH to the internet
 
-For security guidance, see [Security](docs/security.md).
+See [Security](docs/security.md) for full guidance.
+
+---
+
+## Prerequisites
+
+- Docker Engine 20.10+
+- Docker Compose v2+
+- A 24/7 Linux server (Unraid, NAS, VM, VPS, Raspberry Pi, etc.)
+- A Claude account with Remote Control access
+
+---
+
+## Unraid Setup
+
+```bash
+ssh root@your-unraid-server
+cd /mnt/user/appdata/
+
+git clone https://github.com/LeonardoMacedoCano/ClaudeDock.git claudedock
+mkdir -p /mnt/user/appdata/claude-config
+```
+
+For each project:
+```bash
+mkdir -p /mnt/user/appdata/projects/homepage
+cp /mnt/user/appdata/claudedock/.env.example /mnt/user/appdata/projects/homepage/.env
+cp /mnt/user/appdata/claudedock/docker-compose.yml /mnt/user/appdata/projects/homepage/docker-compose.yml
+```
+
+Recommended `.env` for Unraid:
+```env
+CLAUDE_SOURCE_PATH=/mnt/user/appdata/claudedock
+CONFIG_PATH=/mnt/user/appdata/claude-config
+WORKSPACE_PATH=/mnt/cache/www/myhomepage.com
+REMOTE_SESSION_NAME=HomePage
+AUTO_START_MODE=remote
+TZ=America/Sao_Paulo
+```
+
+See the [Unraid Guide](docs/unraid.md) for the complete setup.
+
+---
+
+## Updating Claude Code
+
+```bash
+cd /srv/projects/homepage
+./scripts/update.sh
+```
+
+Backs up credentials, rebuilds the image with `--no-cache` (fetches the latest `@anthropic-ai/claude-code`), restarts. Login is preserved.
+
+---
+
+## Backup
+
+```bash
+./scripts/backup.sh                          # Create backup
+./scripts/restore.sh --list                  # List backups
+./scripts/restore.sh ./backups/backup.tar.gz # Restore
+```
 
 ---
 
@@ -434,7 +478,7 @@ For security guidance, see [Security](docs/security.md).
 |----------|--------|
 | Linux x86_64 | Supported |
 | Linux ARM64 (Raspberry Pi 4/5) | Supported |
-| Unraid 6.10+ | Supported -- see [Unraid Guide](docs/unraid.md) |
+| Unraid 6.10+ | Supported — see [Unraid Guide](docs/unraid.md) |
 | Synology DSM | Supported |
 | QNAP QTS | Supported |
 | TrueNAS Scale | Supported |
@@ -446,67 +490,53 @@ For security guidance, see [Security](docs/security.md).
 
 | Document | Description |
 |----------|-------------|
-| [Unraid Guide](docs/unraid.md) | Complete setup for Unraid, Docker UI configuration, Unraid Console |
-| [Docker Reference](docs/docker.md) | Docker commands, volumes, logs, troubleshooting |
+| [Unraid Guide](docs/unraid.md) | Complete Unraid setup |
+| [Docker Reference](docs/docker.md) | Docker commands, volumes, logs |
 | [Architecture](docs/architecture.md) | tmux/PID 1 design, data flow, design decisions |
-| [Troubleshooting Guide](docs/troubleshooting.md) | Common problems and solutions |
-| [Security](docs/security.md) | Credential protection, remote access, security checklist |
+| [Troubleshooting](docs/troubleshooting.md) | Common problems and solutions |
+| [Security](docs/security.md) | Credential protection, remote access |
 
 ---
 
 ## FAQ
 
-**Do I need to log in every time the container restarts?**
+**Do I need to log in for every container I create?**
 
-No. Login is done once. Credentials are saved in `./config/` on the host and loaded automatically on every restart.
+No. Set `CONFIG_PATH` to the same folder in every container. Log in once with the first container. Every other container reads the same credentials and starts already authenticated.
 
----
+**Can I run many containers simultaneously on the same server?**
+
+Yes. Each container needs a unique `container_name` in `docker-compose.yml`, a unique `REMOTE_SESSION_NAME`, and its own `WORKSPACE_PATH`. `CONFIG_PATH` and `CLAUDE_SOURCE_PATH` are shared.
+
+**What if Remote Control freezes?**
+
+Connect to your server via VPN, SSH in, and run:
+```bash
+docker exec -it claudedock-<name> tmux attach-session -t main
+```
+Unblock the session, then detach with `Ctrl+B, D`. Remote Control resumes.
 
 **What is `--dangerously-skip-permissions`?**
 
-An official Claude Code flag that disables confirmation prompts before running commands, creating, or editing files. With `CLAUDE_AUTO_APPROVE=true` in `.env`, the container uses this flag by default. Recommended for personal servers where you are the only user.
+An official Claude Code flag that skips confirmation prompts before running commands or editing files. Enabled by `CLAUDE_AUTO_APPROVE=true`. Recommended for personal containers where you are the only user.
 
----
+**Why non-root user?**
 
-**Why does the container run as a non-root user?**
+Claude Code 2.x blocks `--dangerously-skip-permissions` when run as root (UID 0). ClaudeDock uses the `node` user (UID 1000) to satisfy this requirement and as a security best practice.
 
-Claude Code 2.x blocks `--dangerously-skip-permissions` when run as root (UID 0). ClaudeDock uses the `node` user (UID 1000) to work around this restriction and as a security best practice.
-
----
-
-**How do I access from outside my home network?**
-
-Via SSH to the server + `./scripts/attach.sh`. Use Tailscale or WireGuard for secure access without exposing the server to the internet.
-
----
-
-**How do I open a shell in the container without affecting Claude?**
+**How do I access the terminal if Remote Control is unavailable?**
 
 ```bash
-./scripts/shell.sh
-# or directly:
-docker exec -it claude-dock bash
+# From SSH on the server:
+docker exec -it claudedock-<name> tmux attach-session -t main
+
+# Disconnect without stopping:
+Ctrl+B, D
 ```
-
-This opens a **separate** bash process without interfering with the Claude Code session.
-
----
 
 **What happens if the server reboots?**
 
-The container starts automatically (`restart: unless-stopped`), Claude Code launches already authenticated. Just run `./scripts/attach.sh` to reconnect.
-
----
-
-**How do I use Remote Control mode?**
-
-Set `AUTO_START_MODE=remote` in `.env` and restart the container:
-```bash
-nano .env  # AUTO_START_MODE=remote
-docker compose up -d --force-recreate
-```
-
-Or use `./scripts/remote.sh` for a temporary Remote Control session without changing the main mode.
+All containers restart automatically (`restart: unless-stopped`). Every Claude instance comes back authenticated and in Remote Control mode. You reconnect from Claude.ai and everything is where you left it.
 
 ---
 
@@ -515,13 +545,13 @@ Or use `./scripts/remote.sh` for a temporary Remote Control session without chan
 | Problem | Solution |
 |---------|----------|
 | Container does not start | `docker compose logs` to see the error |
-| Asks for login every time | Check if `./config/` has files and is mounted correctly |
-| Cannot connect via `attach.sh` | Verify container is running: `docker ps` |
-| Garbled interface | Check `TERM=xterm-256color` in `.env` and recreate container |
-| Empty workspace | Check `WORKSPACE_PATH` in `.env` and that the folder exists on host |
+| Session not appearing in Remote Control | Check `AUTO_START_MODE=remote` and `REMOTE_SESSION_NAME` in `.env` |
+| Asks for login every time | Verify `CONFIG_PATH` points to the same folder across containers |
+| Remote Control session frozen | SSH to server, `docker exec -it claudedock-<name> tmux attach-session -t main`, unblock |
 | Permission denied on workspace | `chown -R 1000:1000 /your/workspace/` (UID 1000 = node user) |
+| Empty workspace | Check `WORKSPACE_PATH` in `.env` and that the folder exists on host |
 
-For detailed troubleshooting, see [Troubleshooting Guide](docs/troubleshooting.md).
+See [Troubleshooting Guide](docs/troubleshooting.md) for more.
 
 ---
 
