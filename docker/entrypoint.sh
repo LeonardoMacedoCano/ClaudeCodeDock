@@ -142,6 +142,9 @@ CMD_ARGS=()
 
 case "${MODE}" in
     remote)
+        if [ "${CLAUDE_AUTO_APPROVE:-true}" = "true" ]; then
+            CMD_ARGS+=("--dangerously-skip-permissions")
+        fi
         if [ -n "${REMOTE_SESSION_NAME:-}" ]; then
             CMD_ARGS+=("--remote-control" "${REMOTE_SESSION_NAME}")
         else

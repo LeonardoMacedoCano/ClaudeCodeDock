@@ -518,7 +518,7 @@ Unblock the session, then detach with `Ctrl+B, D`. Remote Control resumes.
 
 **What is `--dangerously-skip-permissions`?**
 
-An official Claude Code flag that skips confirmation prompts before running commands or editing files. Enabled by `CLAUDE_AUTO_APPROVE=true`. Recommended for personal containers where you are the only user.
+An official Claude Code flag that skips confirmation prompts before running commands or editing files. Enabled by `CLAUDE_AUTO_APPROVE=true`. Recommended for personal containers where you are the only user. In `AUTO_START_MODE=remote`, the flag eliminates local prompts in the tmux terminal, but the permission mode shown in the claude.ai Remote Control interface (mode 1/2/3) is controlled by the claude.ai client — not by server-side flags. You need to change the mode manually in the claude.ai interface.
 
 **Why non-root user?**
 
