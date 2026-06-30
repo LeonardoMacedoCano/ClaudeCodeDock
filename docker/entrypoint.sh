@@ -67,7 +67,7 @@ CLAUDE_VERSION=$(claude --version 2>/dev/null || echo "unknown version")
 log_info "Claude Code: ${BOLD}${CLAUDE_VERSION}${RESET}"
 
 log_step "Preparing environment..."
-mkdir -p "${HOME}/.claude" /workspace
+mkdir -p "${HOME}/.claude" "${WORKSPACE_DIR:-/workspace}"
 log_info "Directories verified."
 
 # ~/.claude.json lives outside the mounted volume and would be lost on restart.
@@ -116,7 +116,7 @@ if [ -n "${GITHUB_TOKEN:-}" ]; then
 fi
 
 if [ -n "${GIT_REPO_URL:-}" ]; then
-    WORKSPACE_EMPTY=$(find /workspace -mindepth 1 -maxdepth 1 2>/dev/null | head -1)
+    WORKSPACE_EMPTY=$(find "${WORKSPACE_DIR:-/workspace}" -mindepth 1 -maxdepth 1 2>/dev/null | head -1)
     if [ -z "${WORKSPACE_EMPTY}" ]; then
         log_step "Cloning repository into /workspace..."
         if git clone "${GIT_REPO_URL}" /workspace 2>&1 | while IFS= read -r line; do log_info "${line}"; done; then
@@ -147,14 +147,14 @@ fi
 
 log_step "Validating workspace..."
 
-if [ -d "/workspace" ] && [ -r "/workspace" ]; then
-    WORKSPACE_FILES=$(ls /workspace 2>/dev/null | wc -l)
+if [ -d "${WORKSPACE_DIR:-/workspace}" ] && [ -r "${WORKSPACE_DIR:-/workspace}" ]; then
+    WORKSPACE_FILES=$(ls "${WORKSPACE_DIR:-/workspace}" 2>/dev/null | wc -l)
     log_info "Workspace: /workspace (${WORKSPACE_FILES} item(s))"
 else
     log_warn "/workspace not accessible. Check WORKSPACE_PATH in .env"
 fi
 
-cd /workspace
+cd "${WORKSPACE_DIR:-/workspace}"
 
 MODE="${AUTO_START_MODE:-interactive}"
 
